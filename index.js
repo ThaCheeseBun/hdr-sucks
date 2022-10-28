@@ -313,7 +313,7 @@ function ff_inject(p, p_args) { // this function is just stupid
     const fmt = parse_pix_fmt(stream.pix_fmt);
     x265_args.push("--output-depth", fmt.depth);
     // also set aq-mode to 3 for 8bit
-    if (fmt.depth === 8)
+    if (fmt.depth === "8")
         x265_args.push("--aq-mode", "3");
     if (opts.verbose)
         console.log(fmt);
