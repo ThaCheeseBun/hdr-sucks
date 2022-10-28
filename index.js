@@ -268,11 +268,13 @@ function ff_inject(p, p_args) { // this function is just stupid
         .argument("[output]", "output file path")
         .option("-v, --verbose", "more debug info")
         .option("-hf, --half-fps", "do not double fps for interlaced video")
-        .option("-p, --preset", "x265 preset to use", "ultrafast")
-        .option("-q, --crf", "x265 crf quality", "26")
+        .option("-p, --preset <string>", "x265 preset to use", "ultrafast")
+        .option("-q, --crf <number>", "x265 crf quality", "26")
         .parseAsync();
     const args = program.processedArgs;
     const opts = program.opts();
+    if (opts.verbose)
+		console.log(args, opts);
 
     // store current tempfiles
     let paths = {
@@ -352,10 +354,8 @@ function ff_inject(p, p_args) { // this function is just stupid
     );
 
     // debug logging
-    if (opts.verbose) {
-        console.log(x265_args);
-        console.log(ff_args);
-    }
+    if (opts.verbose)
+        console.log(x265_args, ff_args);
 
     // do the actual transcoding
     const code = await transcode(ff_args, x265_args);
