@@ -95,6 +95,7 @@ function run_ffprobe(file) {
             "-hide_banner",
             "-of", "json",
             "-select_streams", "v:0",
+            "-show_format",
             "-show_streams",
             "-show_frames",
             "-read_intervals", "%+#1"
@@ -310,9 +311,10 @@ function ff_inject(p, p_args) { // this function is just stupid
 
     // first off, pixel format
     const fmt = parse_pix_fmt(stream.pix_fmt);
-    x265_args.push(
-        "--output-depth", fmt.depth,
-    );
+    x265_args.push("--output-depth", fmt.depth);
+    // also set aq-mode to 3 for 8bit
+    if (fmt.depth === 8)
+        x265_args.push("--aq-mode", "3");
     if (opts.verbose)
         console.log(fmt);
 
@@ -356,6 +358,10 @@ function ff_inject(p, p_args) { // this function is just stupid
     // debug logging
     if (opts.verbose)
         console.log(x265_args, ff_args);
+
+    // give duration and rough framecount estimate
+    const duration = Number(stream.duration || d.format.duration);
+    console.log(`Duration: ${duration}s, Frames: ~${Math.round(duration * parse_slash_number(stream.r_frame_rate))}`);
 
     // do the actual transcoding
     const code = await transcode(ff_args, x265_args);
