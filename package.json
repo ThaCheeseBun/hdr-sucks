@@ -10,11 +10,12 @@
   "keywords": [],
   "author": "ThaCheeseBun",
   "repository": {
-    "type" : "git",
-    "url" : "https://github.com/thacheesebun/hdr-sucks.git"
+    "type": "git",
+    "url": "https://github.com/thacheesebun/hdr-sucks.git"
   },
   "license": "ISC",
   "dependencies": {
+    "chalk": "^5.1.2",
     "commander": "^9.4.1"
   }
 }
