@@ -1,4 +1,4 @@
-/* Copyright (c) 2022, ThaCheeseBun
+/* Copyright (c) 2023, ThaCheeseBun
 
 Permission to use, copy, modify, and/or distribute this software for any
 purpose with or without fee is hereby granted, provided that the above
@@ -60,12 +60,12 @@ function stream_to_buffer(stream) {
 // "safe" numerator/denominator parser
 function parse_slash_number(input) {
     const s = input.split("/");
-    if (s.length < 2)
+    if (s.length < 2) {
         return Number(input);
-    if (s.length > 2)
+    }
+    if (s.length > 2 || isNaN(Number(s[0])) || isNaN(Number(s[1]))) {
         return NaN;
-    if (isNaN(Number(s[0])) || isNaN(Number(s[1])))
-        return NaN;
+    }
     return Number(s[0]) / Number(s[1]);
 }
 
@@ -86,11 +86,13 @@ function parse_master_display(p) {
     const o = [];
     const list = [p.green_x, p.green_y, p.blue_x, p.blue_y, p.red_x, p.red_y, p.white_point_x, p.white_point_y, p.max_luminance, p.min_luminance];
     for (const i in list) {
-        if (!list[i])
+        if (!list[i]) {
             throw new Error("this wrong");
+        }
         const num = parse_slash_number(list[i]);
-        if (isNaN(num))
+        if (isNaN(num)) {
             throw new Error("this wrong");
+        }
         o.push(Math.round(num * ((i > 7) ? 10000 : 50000)));
     }
     return `G(${o[0]},${o[1]})B(${o[2]},${o[3]})R(${o[4]},${o[5]})WP(${o[6]},${o[7]})L(${o[8]},${o[9]})`;
@@ -125,16 +127,18 @@ function run_ffprobe(file) {
 
 // quick side_data finder for stream or frame
 function find(side_data, type) {
-    if (side_data && side_data.length > 0)
+    if (side_data && side_data.length > 0) {
         return side_data.find(a => a.side_data_type === type);
+    }
     return undefined;
 }
 
 // average calc for number array
 function average_of(arr) {
     let total = 0;
-    for (const n of arr)
+    for (const n of arr) {
         total += n;
+    }
     return total / arr.length;
 }
 
@@ -151,11 +155,13 @@ function transcode(ff_args, x265_args, frames, v) {
             let avg = [];
             x265_proc.stderr.on("data", l => {
                 const result = X265_REGEX.exec(l.toString());
-                if (!result)
+                if (!result) {
                     return;
+                }
                 const fps = Number(result[2]);
-                if (avg.length === 50)
+                if (avg.length === 500) {
                     avg.shift();
+                }
                 avg.push(fps);
                 const avg_ = average_of(avg);
                 const doneFrames = Number(result[1]);
@@ -179,7 +185,6 @@ function mkvmerge(paths, extra_tags, v) {
         const mkv_args = [
             "--ui-language", "en",
             "-o", paths.output,
-            "--no-video", paths.input,
             "--language", `0:${extra_tags.language}`,
             "--default-track-flag", `0:${extra_tags.default}`,
             "--forced-display-flag", `0:${extra_tags.forced}`,
@@ -188,17 +193,21 @@ function mkvmerge(paths, extra_tags, v) {
             "--text-descriptions-flag", `0:${extra_tags.text_descriptions}`,
             "--original-flag", `0:${extra_tags.original}`,
             "--commentary-flag", `0:${extra_tags.commentary}`,
-            paths.temp
+            paths.temp,
+            "--no-video",
+            paths.input,
         ];
         const stdio = v ? ["ignore", "inherit", "pipe"] : ["ignore", "pipe", "pipe"];
         const proc = spawn(MKVMERGE, mkv_args, { stdio });
-        if (proc.stdout)
+        if (proc.stdout) {
             proc.stdout.on("data", l => {
                 const str = l.toString();
-                if (!str.startsWith("Progress:"))
+                if (!str.startsWith("Progress:")) {
                     return;
+                }
                 process.stdout.write(`\r${MKV_PREFIX} ${str}`);
             });
+        }
         proc.on("exit", async c => {
             if (c !== 0) {
                 const buf = await stream_to_buffer(proc.stderr);
@@ -217,8 +226,9 @@ function pre_hdr(stream, frame, paths, v) {
         let done = [false, false, false, false];
         let out = [];
         for (const e of [stream, frame]) {
-            if (!e.side_data_list || e.side_data_list.length < 1)
+            if (!e.side_data_list || e.side_data_list.length < 1) {
                 continue;
+            }
 
             // HDR10 / HLG
             _temp = find(e.side_data_list, "Mastering display metadata");
@@ -240,8 +250,9 @@ function pre_hdr(stream, frame, paths, v) {
                 log("Found Dolby Vision");
                 paths.dv = generate_temp_name(".bin");
                 const result = await ff_xtract(paths.input, DOVI_TOOL, `extract-rpu -o ${paths.dv} -`.split(" "), v);
-                if (result.e)
+                if (result.e) {
                     return rej(`Extracting Dolby Vision failed (${result.c}): "${result.e}"`);
+                }
             }
 
             // HDR10+
@@ -251,8 +262,9 @@ function pre_hdr(stream, frame, paths, v) {
                 log("Found HDR10+");
                 paths.plus = generate_temp_name(".json");
                 const result = await ff_xtract(paths.input, HDR10PLUS_TOOL, `extract -o ${paths.plus} -`.split(" "), v);
-                if (result.e)
+                if (result.e) {
                     return rej(`Extracting HDR10+ failed (${result.c}): "${result.e}"`);
+                }
             }
         }
         res(out);
@@ -277,8 +289,9 @@ function ff_xtract(file, sec, args, v) {
         const sec_proc = spawn(sec, args, { stdio: stdio2 });
         ff_proc.stdout.pipe(sec_proc.stdin);
         sec_proc.on("exit", async c => {
-            if (c === 0)
+            if (c === 0) {
                 return res({ c, e: null });
+            }
             const buf = await stream_to_buffer(sec_proc.stderr);
             res({ c, e: buf.toString().trim() });
         });
@@ -313,8 +326,9 @@ function post_hdr(paths) {
             args.push("-i", currentFile, "-o", newTemp);
 
             const result = await ff_inject(tool, args);
-            if (result.e)
+            if (result.e) {
                 return rej(`Injecting HDR (${k}) failed (${result.c}): "${result.e}"`);
+            }
 
             await rm(currentFile);
             await rm(v);
@@ -334,8 +348,9 @@ function ff_inject(p, args) {
             stdio: ["ignore", "inherit", "pipe"]
         });
         proc.on("exit", async c => {
-            if (c === 0)
+            if (c === 0) {
                 return res({ c, e: null });
+            }
             const buf = await stream_to_buffer(proc.stderr);
             res({ c, e: buf.toString().trim() });
         });
@@ -344,14 +359,18 @@ function ff_inject(p, args) {
 
 // get duration from ffprobe data
 function get_duration(d) {
-    if (d.streams[0].duration)
+    if (d.streams[0].duration) {
         return Number(d.streams[0].duration);
-    if (d.streams[0].tags)
-        for (const [k, v] of Object.entries(d.streams[0].tags))
-            if (k.toLowerCase().startsWith("duration"))
+    }
+    if (d.streams[0].tags) {
+        for (const [k, v] of Object.entries(d.streams[0].tags)) {
+            if (k.toLowerCase().startsWith("duration")) {
                 return Date.parse(`1970-01-01T${v}Z`) / 1000;
-    else if (d.format.duration)
-        return Number(d.format.duration);
+            } else if (d.format.duration) {
+                return Number(d.format.duration);
+            }
+        }
+    }
     return NaN;
 }
 
@@ -373,17 +392,27 @@ function debug(...msg) {
     try {
         // parse command line arguments
         const program = await new Command()
-            .name("hdr-sucks")
-            .description("libx265 transcoding wrapper with hdr support")
-            .version("0.0.1")
             .argument("<input>", "input file path")
             .argument("[output]", "output file path")
-            .option("-v, --verbose", "more debug info")
-            .option("-hf, --half-fps", "do not double fps for interlaced video")
-            .option("-p, --preset <string>", "x265 preset to use", "ultrafast")
-            .option("-q, --crf <number>", "x265 crf quality", "26")
-            .option("-t, --time <number>", "limit time, used for debugging mostly")
+
+            // quality options
+            .option("-p, --preset <string>", "x265 preset to use", "medium")
+            .option("-q, --crf <number>", "x265 crf quality", "23")
+
+            // specific settings
+            .option("--keep-bit", "8 bit is processed to 10 bit by default, this keeps 8 bit and enables aq mode 3")
+            .option("--double-fps", "double fps for interlaced video")
+
+            // time related settings
+            .option("-t, --time <number>", "limit time to process")
+            .option("-ss, --seek <number>", "start position")
+
+            // extra
             .option("-o, --args <string>", "add extra x265 arguments")
+
+            // debug options
+            .option("-v, --verbose", "more debug info")
+
             .parseAsync();
         const args = program.processedArgs;
         const opts = program.opts();
@@ -408,15 +437,18 @@ function debug(...msg) {
         // run ffprobe
         log("Extracting file metadata");
         const d = await run_ffprobe(paths.input);
-        if (d._e)
+        if (d._e) {
             return err(`Could not parse with ffprobe: ${d._e}`);
+        }
 
         // content checks
-        if (d.streams.length < 1)
+        if (d.streams.length < 1) {
             return err("No video stream was found in the file");
+        }
         const stream = d.streams[0];
-        if (d.frames.length < 1)
+        if (d.frames.length < 1) {
             return err("No frames were found in the video stream");
+        }
         const frame = d.frames[0];
 
         // lets start creating arguments
@@ -431,24 +463,38 @@ function debug(...msg) {
 
         // first off, pixel format
         const fmt = parse_pix_fmt(stream.pix_fmt);
-        if (opts.verbose)
+        if (opts.verbose) {
             debug("pix_fmt", fmt);
-        x265_args.push("--output-depth", fmt.depth);
-        // also set aq-mode to 3 for 8bit
-        if (fmt.depth === "8") {
-            log("Input depth is 8, using \"aq-mode=3\" to improve darker scenes");
-            x265_args.push("--aq-mode", "3");
+        }
+        // keep bit depth if requested and use aq mode 3 for 8 bit
+        if (opts.keepBit) {
+            x265_args.push("--output-depth", fmt.depth);
+            if (fmt.depth === "8") {
+                log("Input depth is 8, using \"aq-mode=3\" to improve darker scenes");
+                x265_args.push("--aq-mode", "3");
+            }
+        } else {
+            if (fmt.depth === "8") {
+                log("Input depth is 8, using output depth 10 to improve darker scenes");
+                x265_args.push("--output-depth", "10");
+            } else {
+                x265_args.push("--output-depth", fmt.depth);
+            }
         }
 
         // add color data if they exist
-        if (stream.range)
+        if (stream.range) {
             x265_args.push("--range", COLOR_RANGE[stream.color_range]);
-        if (stream.color_primaries)
+        }
+        if (stream.color_primaries) {
             x265_args.push("--colorprim", stream.color_primaries);
-        if (stream.color_transfer)
+        }
+        if (stream.color_transfer) {
             x265_args.push("--transfer", stream.color_transfer);
-        if (stream.color_space)
+        }
+        if (stream.color_space) {
             x265_args.push("--colormatrix", stream.color_space);
+        }
 
         // hdr shenanigans
         log("Extracting HDR metadata, this may take a while...");
@@ -468,8 +514,9 @@ function debug(...msg) {
         };
         if (stream.tags) {
             for (const [k, v] of Object.entries(stream.tags)) {
-                if (k.toLowerCase() === "language")
+                if (k.toLowerCase() === "language") {
                     extra_tags.language = v;
+                }
             }
         }
         if (stream.disposition) {
@@ -493,15 +540,17 @@ function debug(...msg) {
         let fps = parse_slash_number(stream.r_frame_rate);
         if (stream.field_order && stream.field_order !== "progressive") {
             log("Interlaced video, using yadif to deinterlace");
-            ff_args.push("-vf", `yadif=${opts["half-fps"] ? "0" : "1"}`);
-            if (!opts["half-fps"])
+            ff_args.push("-vf", `yadif=${opts.doubleFps ? "1" : "0"}`);
+            if (opts.doubleFps) {
                 fps *= 2;
+            }
         }
 
         // limit time, used for debugging mostly
         if (opts.time) {
-            if (isNaN(Number(opts.time)))
+            if (isNaN(Number(opts.time))) {
                 return err("Invalid time format");
+            }
             ff_args.push("-t", opts.time);
         }
 
@@ -517,8 +566,9 @@ function debug(...msg) {
             const s = opts.args.split(":");
             for (const a of s) {
                 const ss = a.split("=");
-                if (ss.length !== 2)
+                if (ss.length !== 2) {
                     continue;
+                }
                 x265_args.push(`--${ss[0]}`, ss[1]);
             }
         }
@@ -538,10 +588,11 @@ function debug(...msg) {
         );
 
         // do the actual transcoding
-        log("Starting transcode, this will definately take a while");
+        log("Starting transcode, this will take a while");
         const code = await transcode(ff_args, x265_args, totFrames, opts.verbose);
-        if (code !== 0)
+        if (code !== 0) {
             return err(`Transcode failed: ${code}`);
+        }
 
         // reinject hdr metadata
         log("Injecting HDR metadata if any");

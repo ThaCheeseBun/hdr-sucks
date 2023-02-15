@@ -1,18 +1,17 @@
 # hdr-sucks
-libx265 transcoding wrapper with hdr support.
+libx265 transcoding wrapper with HDR support.
 
 ## supported stuffs
 * Input file
     * Pretty much anything ffmpeg can decode
-* Output file.
+* Output file
     * HEVC video with original audio and subtitles in a Matroska (MKV) file.
 * HDR
-    * HDR10
-    * HLG
+    * HDR10 / HLG
     * Dolby Vision
     * HDR10+
 
-## used software
+## required software
 * [ffmpeg](https://ffmpeg.org/) for metadata extraction and video decoding.
 * [dovi_tool](https://github.com/quietvoid/dovi_tool) for Dolby Vision support.
 * [hdr10plus_tool](https://github.com/quietvoid/hdr10plus_tool) for HDR10+ support.
