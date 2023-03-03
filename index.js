@@ -26,7 +26,7 @@ const TEMP_BASE = ".hdrsucks-";
 const X265_PREFIX = chalk.cyan("[x265]");
 const X265_REGEX = /([0-9]+) frames: ([0-9]+\.[0-9]+) fps, ([0-9]+\.[0-9]+) kb\/s/;
 
-const MKV_PREFIX = chalk.magenta("[MKV] ");
+const MKV_PREFIX = chalk.magenta("[MKVT]");
 
 // tools used
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
@@ -98,6 +98,19 @@ function parse_master_display(p) {
     return `G(${o[0]},${o[1]})B(${o[2]},${o[3]})R(${o[4]},${o[5]})WP(${o[6]},${o[7]})L(${o[8]},${o[9]})`;
 }
 
+// seconds to HH:MM:SS
+// loaned from https://stackoverflow.com/a/34841026
+function toHHMMSS(secs) {
+    const sec_num = parseInt(secs, 10)
+    const hours   = Math.floor(sec_num / 3600)
+    const minutes = Math.floor(sec_num / 60) % 60
+    const seconds = sec_num % 60
+
+    return [hours,minutes,seconds]
+        .map(v => v < 10 ? "0" + v : v)
+        .join(":")
+}
+
 // run ffprobe and grab info about file
 function run_ffprobe(file) {
     return new Promise(res => {
@@ -166,8 +179,7 @@ function transcode(ff_args, x265_args, frames, v) {
                 const avg_ = average_of(avg);
                 const doneFrames = Number(result[1]);
                 const eta = Math.round((frames - doneFrames) / avg_);
-                const etastr = new Date(eta * 1000).toISOString().substring(11, 19);
-                process.stdout.write(`\r${X265_PREFIX} ${result[1]} / ${frames}, ${result[2]} fps, ${result[3]} kb/s, eta: ${etastr}`);
+                process.stdout.write(`\r${X265_PREFIX} ${result[1]} / ${frames}, ${result[2]} fps, ${result[3]} kb/s, eta: ${toHHMMSS(eta)}`);
             });
         }
 
@@ -183,7 +195,6 @@ function transcode(ff_args, x265_args, frames, v) {
 function mkvmerge(paths, extra_tags, v) {
     return new Promise((res, rej) => {
         const mkv_args = [
-            "--ui-language", "en",
             "-o", paths.output,
             "--language", `0:${extra_tags.language}`,
             "--default-track-flag", `0:${extra_tags.default}`,
@@ -202,10 +213,9 @@ function mkvmerge(paths, extra_tags, v) {
         if (proc.stdout) {
             proc.stdout.on("data", l => {
                 const str = l.toString();
-                if (!str.startsWith("Progress:")) {
-                    return;
+                if (str.includes("%") && str.split(":").length == 2) {
+                    process.stdout.write(`\r${MKV_PREFIX} Progress: ${str.split(":")[1].trim()}`);
                 }
-                process.stdout.write(`\r${MKV_PREFIX} ${str}`);
             });
         }
         proc.on("exit", async c => {
@@ -403,9 +413,9 @@ function debug(...msg) {
             .option("--keep-bit", "8 bit is processed to 10 bit by default, this keeps 8 bit and enables aq mode 3")
             .option("--double-fps", "double fps for interlaced video")
 
-            // time related settings
-            .option("-t, --time <number>", "limit time to process")
-            .option("-ss, --seek <number>", "start position")
+            // debug time related settings
+            .option("-t, --time <number>", "[DEBUG] limit time to process")
+            .option("-ss, --seek <number>", "[DEBUG] start position")
 
             // extra
             .option("-o, --args <string>", "add extra x265 arguments")
