@@ -47,16 +47,6 @@ function generate_temp_name(extra = "") {
     return join(process.cwd(), TEMP_BASE + randomBytes(3).toString("hex") + extra);
 }
 
-// convert readable stream into buffer
-function stream_to_buffer(stream) {
-    return new Promise((res, rej) => {
-        const bufs = [];
-        stream.on("data", chunk => bufs.push(chunk));
-        stream.on("end", () => res(Buffer.concat(bufs)));
-        stream.on("error", err => rej(err));
-    });
-}
-
 // "safe" numerator/denominator parser
 function parse_slash_number(input) {
     const s = input.split("/");
@@ -101,19 +91,20 @@ function parse_master_display(p) {
 // seconds to HH:MM:SS
 // loaned from https://stackoverflow.com/a/34841026
 function toHHMMSS(secs) {
-    const sec_num = parseInt(secs, 10)
-    const hours   = Math.floor(sec_num / 3600)
-    const minutes = Math.floor(sec_num / 60) % 60
-    const seconds = sec_num % 60
+    const sec_num = parseInt(secs, 10);
+    const hours = Math.floor(sec_num / 3600);
+    const minutes = Math.floor(sec_num / 60) % 60;
+    const seconds = sec_num % 60;
 
-    return [hours,minutes,seconds]
+    return [hours, minutes, seconds]
         .map(v => v < 10 ? "0" + v : v)
-        .join(":")
+        .join(":");
 }
 
 // run ffprobe and grab info about file
 function run_ffprobe(file) {
     return new Promise(res => {
+        let bufsOut = [], bufsErr = [];
         const args = [
             "-i", file,
             "-hide_banner",
@@ -127,12 +118,14 @@ function run_ffprobe(file) {
         const proc = spawn(FFPROBE, args, {
             stdio: ["ignore", "pipe", "pipe"]
         });
-        proc.on("exit", async c => {
+        proc.stdout.on("data", d => bufsOut.push(d));
+        proc.stderr.on("data", d => bufsErr.push(d));
+        proc.on("exit", c => {
             if (c !== 0) {
-                const buf = await stream_to_buffer(proc.stderr);
+                const buf = Buffer.concat(bufsErr);
                 return res({ _e: buf.toString().trim() });
             }
-            const buf = await stream_to_buffer(proc.stdout);
+            const buf = Buffer.concat(bufsOut);
             res(JSON.parse(buf.toString()));
         });
     });
@@ -194,6 +187,7 @@ function transcode(ff_args, x265_args, frames, v) {
 // final mkv merge of old and new file
 function mkvmerge(paths, extra_tags, v) {
     return new Promise((res, rej) => {
+        let bufsErr = [];
         const mkv_args = [
             "-o", paths.output,
             "--language", `0:${extra_tags.language}`,
@@ -218,9 +212,10 @@ function mkvmerge(paths, extra_tags, v) {
                 }
             });
         }
-        proc.on("exit", async c => {
+        proc.stderr.on("data", d => bufsErr.push(d));
+        proc.on("exit", c => {
             if (c !== 0) {
-                const buf = await stream_to_buffer(proc.stderr);
+                const buf = Buffer.concat(bufsErr);
                 return rej(buf.toString().trim());
             }
             console.log(`\n${LOG_PREFIX} Merge done`);
@@ -285,6 +280,7 @@ function pre_hdr(stream, frame, paths, v) {
 // helper function for extraction
 function ff_xtract(file, sec, args, v) {
     return new Promise(res => {
+        let bufsErr = [];
         const ff_args = [
             "-i", file,
             "-map", "0:v:0?",
@@ -298,11 +294,12 @@ function ff_xtract(file, sec, args, v) {
         const stdio2 = v ? ["pipe", "inherit", "pipe"] : ["pipe", "ignore", "pipe"];
         const sec_proc = spawn(sec, args, { stdio: stdio2 });
         ff_proc.stdout.pipe(sec_proc.stdin);
-        sec_proc.on("exit", async c => {
+        sec_proc.stderr.on("data", d => bufsErr.push(d));
+        sec_proc.on("exit", c => {
             if (c === 0) {
                 return res({ c, e: null });
             }
-            const buf = await stream_to_buffer(sec_proc.stderr);
+            const buf = Buffer.concat(bufsErr);
             res({ c, e: buf.toString().trim() });
         });
     });
@@ -354,14 +351,16 @@ function post_hdr(paths) {
 // really just a promised spawn wrapper
 function ff_inject(p, args) {
     return new Promise(res => {
+        let bufsErr = [];
         const proc = spawn(p, args, {
             stdio: ["ignore", "inherit", "pipe"]
         });
+        proc.stderr.on("data", d => bufsErr.push(d));
         proc.on("exit", async c => {
             if (c === 0) {
                 return res({ c, e: null });
             }
-            const buf = await stream_to_buffer(proc.stderr);
+            const buf = Buffer.concat(bufsErr);
             res({ c, e: buf.toString().trim() });
         });
     });
