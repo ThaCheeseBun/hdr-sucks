@@ -1,4 +1,4 @@
-/* Copyright (c) 2023, ThaCheeseBun
+/* Copyright (c) 2025, ThaCheeseBun
 
 Permission to use, copy, modify, and/or distribute this software for any
 purpose with or without fee is hereby granted, provided that the above
@@ -17,7 +17,7 @@ import { rm } from "node:fs/promises";
 import { basename, join, extname, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { Command } from "commander";
-import chalk from 'chalk';
+import chalk from "chalk";
 
 // misc constants
 const LOG_PREFIX = chalk.green("[HDRS]");
@@ -27,6 +27,10 @@ const X265_PREFIX = chalk.cyan("[x265]");
 const X265_REGEX = /([0-9]+) frames: ([0-9]+\.[0-9]+) fps, ([0-9]+\.[0-9]+) kb\/s/;
 
 const MKV_PREFIX = chalk.magenta("[MKVT]");
+
+const OPUS_PREFIX = chalk.blue("[OPUS]");
+
+const FFMPEG_REGEX = /size=(?<size>(?:[0-9]+[a-zA-Z]{2,3})|N\/A)time=(?<time>-*[0-9]{2}:[0-9]{2}:[0-9]{2}.[0-9]{2})bitrate=(?<bitrate>(?:-*[0-9]+\.[0-9]+)|N\/A).*speed=(?<speed>[0-9]+(?:\.[0-9]+)?)x/;
 
 // tools used
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
@@ -109,7 +113,6 @@ function run_ffprobe(file) {
             "-i", file,
             "-hide_banner",
             "-of", "json",
-            "-select_streams", "v:0",
             "-show_format",
             "-show_streams",
             "-show_frames",
@@ -185,10 +188,10 @@ function transcode(ff_args, x265_args, frames, v) {
 }
 
 // final mkv merge of old and new file
-function mkvmerge(paths, extra_tags, v) {
+function mkvmerge(paths, extra_tags, aud_tags, v) {
     return new Promise((res, rej) => {
         let bufsErr = [];
-        const mkv_args = [
+        let mkv_args = [
             "-o", paths.output,
             "--language", `0:${extra_tags.language}`,
             "--default-track-flag", `0:${extra_tags.default}`,
@@ -198,10 +201,28 @@ function mkvmerge(paths, extra_tags, v) {
             "--text-descriptions-flag", `0:${extra_tags.text_descriptions}`,
             "--original-flag", `0:${extra_tags.original}`,
             "--commentary-flag", `0:${extra_tags.commentary}`,
-            paths.temp,
-            "--no-video",
-            paths.input,
+            paths.temp
         ];
+        if (aud_tags.length > 0) {
+            for (let i = 0; i < aud_tags.length; i++) {
+                mkv_args.push(
+                    "--language", `0:${aud_tags[i].language}`,
+                    "--default-track-flag", `0:${aud_tags[i].default}`,
+                    "--forced-display-flag", `0:${aud_tags[i].forced}`,
+                    "--hearing-impaired-flag", `0:${aud_tags[i].hearing_impaired}`,
+                    "--visual-impaired-flag", `0:${aud_tags[i].visual_impaired}`,
+                    "--text-descriptions-flag", `0:${aud_tags[i].text_descriptions}`,
+                    "--original-flag", `0:${aud_tags[i].original}`,
+                    "--commentary-flag", `0:${aud_tags[i].commentary}`,
+                    paths.audio_temp[i]
+                );
+            }
+            mkv_args.push("--no-audio");
+        }
+        mkv_args.push(
+            "--no-video",
+            paths.input
+        );
         const stdio = v ? ["ignore", "inherit", "pipe"] : ["ignore", "pipe", "pipe"];
         const proc = spawn(MKVMERGE, mkv_args, { stdio });
         if (proc.stdout) {
@@ -367,20 +388,48 @@ function ff_inject(p, args) {
 }
 
 // get duration from ffprobe data
-function get_duration(d) {
-    if (d.streams[0].duration) {
-        return Number(d.streams[0].duration);
+function get_duration(stream, format) {
+    if (stream.duration) {
+        return Number(stream.duration);
     }
-    if (d.streams[0].tags) {
-        for (const [k, v] of Object.entries(d.streams[0].tags)) {
+    if (stream.tags) {
+        for (const [k, v] of Object.entries(stream.tags)) {
             if (k.toLowerCase().startsWith("duration")) {
                 return Date.parse(`1970-01-01T${v}Z`) / 1000;
-            } else if (d.format.duration) {
-                return Number(d.format.duration);
+            } else if (format.duration) {
+                return Number(format.duration);
             }
         }
     }
     return NaN;
+}
+
+// EXPERIMENTAL opus audio transcoding
+function opus_transcode(ff_args, stream_len, v) {
+    return new Promise(res => {
+        const stdio = v ? ["ignore", "ignore", "inherit"] : ["ignore", "ignore", "pipe"];
+        const ff_proc = spawn(FFMPEG, ff_args, { stdio });
+
+        if (ff_proc.stderr) {
+            ff_proc.stderr.on("data", d => {
+                for (const line of d.toString().replace(/\r/g, "").split("\n")) {
+                    if (line.trim().length === 0) {
+                        return;
+                    }
+                    const result = FFMPEG_REGEX.exec(line.replace(/ /g, ""));
+                    if (!result) {
+                        return;
+                    }
+                    process.stdout.write(`\r${OPUS_PREFIX} ${result.groups.time} / ${toHHMMSS(stream_len)}, ${result.groups.speed}x`);
+                }
+            });
+        }
+
+        ff_proc.on("exit", c => {
+            console.log(`\n${LOG_PREFIX} Done audio transcoding`);
+            res(c);
+        });
+    });
 }
 
 // log wrappers for adding prefix
@@ -392,6 +441,9 @@ function err(...msg) {
 }
 function debug(...msg) {
     console.log(LOG_PREFIX, chalk.gray("[DEBUG]"), ...msg);
+}
+function warn(...msg) {
+    console.log(LOG_PREFIX, chalk.yellow("[WARNING]"), ...msg);
 }
 
 // main function
@@ -422,6 +474,10 @@ function debug(...msg) {
             // debug options
             .option("-v, --verbose", "more debug info")
 
+            // EXPERIMENTAL opus transcode
+            .option("--opus", "EXPERIMENTAL opus audio transcode")
+            .option("--opus-bitrate", "opus target bitrate (variable", "128")
+
             .parseAsync();
         const args = program.processedArgs;
         const opts = program.opts();
@@ -436,7 +492,8 @@ function debug(...msg) {
             output: args[1] ? resolve(args[1]) : join(process.cwd(), basename(args[0], extname(args[0])) + ".hdr-sucks.mkv"),
             temp: generate_temp_name(".hevc"),
             dv: null,
-            plus: null
+            plus: null,
+            audio_temp: []
         };
 
         // log cause why not
@@ -452,13 +509,22 @@ function debug(...msg) {
 
         // content checks
         if (d.streams.length < 1) {
+            return err("No streams were found in the file");
+        }
+        const stream = d.streams.find(x => x.codec_type === "video");
+        if (stream === undefined) {
             return err("No video stream was found in the file");
         }
-        const stream = d.streams[0];
         if (d.frames.length < 1) {
             return err("No frames were found in the video stream");
         }
         const frame = d.frames[0];
+
+        // opus checks
+        const audio_streams = d.streams.filter(x => x.codec_type === "audio");
+        if (opts.opus && audio_streams.length < 1) {
+            warn("Opus requested but no audio streams found");
+        }
 
         // lets start creating arguments
         let ff_args = [
@@ -589,7 +655,7 @@ function debug(...msg) {
         }
 
         // give duration and rough framecount estimate
-        const duration = get_duration(d);
+        const duration = get_duration(stream, d.format);
         const totFrames = Math.ceil((opts.time ? Number(opts.time) : duration) * fps);
         log(
             `Length: ${opts.time || duration}s, ` +
@@ -607,13 +673,68 @@ function debug(...msg) {
         log("Injecting HDR metadata if any");
         paths.temp = await post_hdr(paths);
 
+        // opus go brrr
+        let aud_tags = [];
+        if (opts.opus) {
+            for (let i = 0; i < audio_streams.length; i++) {
+                console.log(OPUS_PREFIX, "Transcoding audio stream", i);
+
+                paths.audio_temp.push(generate_temp_name(".opus"));
+                let aud_args = [
+                    "-i", paths.input,
+                    "-map", `0:${audio_streams[i].index}`,
+                    "-map_chapters", "-1",
+                    "-map_metadata", "-1",
+                    "-c:a", "libopus",
+                    "-b:a", `${opts.opusBitrate}k`,
+                    paths.audio_temp[i]
+                ];
+                const aud_extra_tags = {
+                    language: "eng",
+                    default: 0,
+                    forced: 0,
+                    hearing_impaired: 0,
+                    visual_impaired: 0,
+                    text_descriptions: 0,
+                    original: 0,
+                    commentary: 0
+                };
+                if (audio_streams[i].tags) {
+                    for (const [k, v] of Object.entries(audio_streams[i].tags)) {
+                        if (k.toLowerCase() === "language") {
+                            aud_extra_tags.language = v;
+                        }
+                    }
+                }
+                if (audio_streams[i].disposition) {
+                    aud_extra_tags.default = audio_streams[i].disposition.default;
+                    aud_extra_tags.forced = audio_streams[i].disposition.forced;
+                    aud_extra_tags.hearing_impaired = audio_streams[i].disposition.hearing_impaired;
+                    aud_extra_tags.visual_impaired = audio_streams[i].disposition.visual_impaired;
+                    aud_extra_tags.text_descriptions = audio_streams[i].disposition.descriptions;
+                    aud_extra_tags.original = audio_streams[i].disposition.original;
+                    aud_extra_tags.commentary = audio_streams[i].disposition.comment;
+                }
+                aud_tags.push(aud_extra_tags);
+
+                const dur = get_duration(audio_streams[i], d.format);
+                const code = await opus_transcode(aud_args, dur, opts.verbose);
+                if (code !== 0) {
+                    return err(`Opus transcode failed: ${code}`);
+                }
+            }
+        }
+
         // merge file back together
         log("Merging source and temp to output");
-        await mkvmerge(paths, extra_tags, opts.verbose);
+        await mkvmerge(paths, extra_tags, aud_tags, opts.verbose);
 
         // cleanup
         log("Cleaning up");
         await rm(paths.temp);
+        for (const temp_file of paths.audio_temp) {
+            await rm(temp_file);
+        }
 
     } catch (e) {
         err(e);

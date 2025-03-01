@@ -1,21 +1,32 @@
-lockfileVersion: 5.4
+lockfileVersion: '9.0'
 
-specifiers:
-  chalk: ^5.2.0
-  commander: ^9.5.0
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
 
-dependencies:
-  chalk: 5.2.0
-  commander: 9.5.0
+importers:
+
+  .:
+    dependencies:
+      chalk:
+        specifier: ^5.2.0
+        version: 5.4.1
+      commander:
+        specifier: ^9.5.0
+        version: 9.5.0
 
 packages:
 
-  /chalk/5.2.0:
-    resolution: {integrity: sha512-ree3Gqw/nazQAPuJJEy+avdl7QfZMcUvmHIKgEZkGL+xOBzRvup5Hxo6LHuMceSxOabuJLJm5Yp/92R9eMmMvA==}
+  chalk@5.4.1:
+    resolution: {integrity: sha512-zgVZuo2WcZgfUEmsn6eO3kINexW8RAE4maiQ8QNs8CtpPCSyMiYsULR3HQYkm3w8FIA3SberyMJMSldGsW+U3w==}
     engines: {node: ^12.17.0 || ^14.13 || >=16.0.0}
-    dev: false
 
-  /commander/9.5.0:
+  commander@9.5.0:
     resolution: {integrity: sha512-KRs7WVDKg86PWiuAqhDrAQnTXZKraVcCc6vFdL14qrZ/DcWwuRo7VoiYXalXO7S5GKpqYiVEwCbgFDfxNHKJBQ==}
     engines: {node: ^12.20.0 || >=14}
-    dev: false
+
+snapshots:
+
+  chalk@5.4.1: {}
+
+  commander@9.5.0: {}
